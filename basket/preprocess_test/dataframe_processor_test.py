@@ -32,3 +32,49 @@ def test_ensure_single_res_each_batch(
     else:
         print("FAILED")
     pass
+
+def resolution_rescale_test(
+    dataframe:pd.DataFrame,
+    image_width_col_name:str,
+    image_height_col_name:str,
+    new_image_width_col_name:str,
+    new_image_height_col_name:str,
+    threshold:float=0.5
+) -> None:
+    r"""
+    rough test if image cropping exceed threshold (default 0.5)
+    for example 4:2 image copped to more than 1:1
+    """
+    error_flag = False
+    # portrait test
+    portrait_res = dataframe.loc[dataframe[new_image_height_col_name]/dataframe[new_image_width_col_name]>=1]
+    # calculate height/width ratio
+    portrait_res_ratio = portrait_res[image_height_col_name]/portrait_res[image_width_col_name]
+    # calculate height/width ratio bucket
+    new_portrait_res_ratio = portrait_res[new_image_height_col_name]/portrait_res[new_image_width_col_name]
+    # calculate scale
+    scaled_height = portrait_res[new_image_width_col_name]/portrait_res[image_width_col_name] * portrait_res[image_height_col_name]
+    abs_delta = (1-scaled_height/portrait_res[new_image_height_col_name]).abs().max()
+    print(abs_delta)
+    if abs_delta > threshold:
+        print("FAILED")
+        error_flag = True
+
+    #landscape test
+    landscape_res = dataframe.loc[dataframe[new_image_width_col_name]/dataframe[new_image_height_col_name]>1]
+    # calculate height/width ratio
+    landscape_res_ratio = landscape_res[image_width_col_name]/landscape_res[image_height_col_name]
+    # calculate height/width ratio bucket
+    new_landscape_res_ratio = landscape_res[new_image_width_col_name]/landscape_res[new_image_height_col_name]
+    # calculate scale
+    scaled_width = landscape_res[new_image_height_col_name]/landscape_res[image_height_col_name] * landscape_res[image_width_col_name]
+    abs_delta = (1-scaled_width/landscape_res[new_image_width_col_name]).abs().max()
+    print(abs_delta)
+    if abs_delta > threshold:
+        print("FAILED")
+        error_flag = True
+
+    if not error_flag:
+        print("PASS")
+    
+    pass

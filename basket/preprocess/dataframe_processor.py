@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import random
 
-def discrete_scale_to_equal_area(
+def discrete_scale_to_equal_area_old(
     dataframe:pd.DataFrame,
     image_height_col_name:str,
     image_width_col_name:str,
@@ -85,6 +85,127 @@ def discrete_scale_to_equal_area(
     # remove helper columns
     if not return_with_helper_columns:
       dataframe = dataframe.drop(columns=[clamped_height,clamped_width])
+
+    return dataframe
+
+def discrete_scale_to_equal_area(
+    dataframe:pd.DataFrame,
+    image_width_col_name:str,
+    image_height_col_name:str,
+    new_image_width_col_name:str,
+    new_image_height_col_name:str,
+    max_res_area:int = 512 ** 2,
+    bucket_lower_bound_res:int = 256,
+    extreme_aspect_ratio_clip:float = 4.0,
+    aspect_ratio_clamping:float = 2.0,
+    return_with_helper_columns:bool = False
+) -> pd.DataFrame:
+    r"""
+    scale the image resolution to nearest multiple value 
+    with less or equal to the maximum area constraint
+
+    note:
+        this code assumes that the image is larger than maximum area
+        if the image is smaller than maximum area it will get scaled up
+    
+    args:
+        dataframe (:obj:`pd.DataFrame`):
+            input dataframe
+        image_width_col_name (:obj:`str`):
+            target column width
+        image_height_col_name (:obj:`str`):
+            target column height
+        new_image_width_col_name (:obj:`str`):
+            column name for new width value
+        new_image_height_col_name (:obj:`str`):
+            column name for new height value
+        max_res_area (:obj:`int`, *optional*, defaults to 512 ** 2):
+            maximum pixel area to be compared with (must be a product of 
+            w and h where w and h is divisible by 64)
+        bucket_lower_bound_res (:obj:`int`, *optional*, defaults to 256):
+            lowest possible pixel width/height for the image
+        extreme_aspect_ratio_clip (:obj:`float`, *optional*, defaults to 4.0):
+            drop images that have width/height or height/width 
+            beyond threshold value
+        aspect_ratio_clamping (:obj:`float`, *optional*, defaults to 2.0):
+            crop images that have width/height or height/width 
+            beyond threshold value 
+        return_with_helper_columns (:obj:`bool`, *optional*, defaults to `False`):
+            return pd.DataFramw with helper columns (for debugging purposes)
+
+    return: pd.DataFrame
+    """
+
+    # local pandas column
+    aspect_ratio_col_name = "_aspect_ratio"
+    bucket_col_name = "_bucket_group"
+    clamped_height = "_clamped_height"
+    clamped_width = "_clamped_width"
+
+    # ========[bucket generator section]======== #
+    root_max_res = max_res_area ** (1/2)
+    centroid = int(root_max_res)
+
+    # a sequence of number that divisible by 64 with constraint
+    w = np.arange(bucket_lower_bound_res // 64 * 64, centroid // 64 * 64 + 64, 64)
+    # y=1/x formula with rounding down to the nearest multiple of 64 
+    # will maximize the clamped resolution to maximum res area
+    h = ((max_res_area/w) // 64 * 64).astype(int)
+    # ========[/bucket generator section]======== #
+
+    # drop ridiculous aspect ratio
+    dataframe = dataframe[dataframe[image_height_col_name]/dataframe[image_width_col_name] <= extreme_aspect_ratio_clip]
+    dataframe = dataframe[dataframe[image_width_col_name]/dataframe[image_height_col_name] <= extreme_aspect_ratio_clip]
+
+    # ## portrait ## #
+    # get portrait resolution
+    # h/w
+    width = dict(zip(list(range(len(w))), w))
+    height = dict(zip(list(range(len(h))), h))
+    # get portrait image only (height > width)
+    portrait_image = dataframe.loc[dataframe[image_height_col_name]/dataframe[image_width_col_name]>=1].copy()
+    # generate aspect ratio column (width/height)
+    portrait_image[aspect_ratio_col_name] = portrait_image[image_height_col_name]/portrait_image[image_width_col_name]
+    # group to the nearest mimimum portrait bucket aspect ratio and create a category column 
+    portrait_image[bucket_col_name]=portrait_image[aspect_ratio_col_name].apply(lambda x: np.argmin(np.abs(x-(h/w))))
+    # generate new column for new scaled portrait resolution
+    portrait_image[new_image_height_col_name] = portrait_image[bucket_col_name].map(height).astype(int)
+    portrait_image[new_image_width_col_name] = portrait_image[bucket_col_name].map(width).astype(int)
+
+    # ## landscape ## #
+    # get lanscape resolution
+    # w_flip/h_flip
+    h_flip = np.flip(w)
+    w_flip = np.flip(h)
+    width_flip = dict(zip(list(range(len(w), len(w_flip) + len(w))), w_flip))
+    height_flip = dict(zip(list(range(len(h), len(h_flip) + len(h))), h_flip))
+    
+    # get landscape image only (width > height)
+    landscape_image = dataframe.loc[dataframe[image_width_col_name]/dataframe[image_height_col_name]>1].copy()
+    # generate aspect ratio column (width/height)
+    landscape_image[aspect_ratio_col_name] = landscape_image[image_width_col_name]/landscape_image[image_height_col_name]
+    # group to the nearest landscape bucket aspect ratio and create a category column 
+    landscape_image[bucket_col_name]=landscape_image[aspect_ratio_col_name].apply(lambda x: np.argmin(np.abs(x-(w_flip/h_flip)))+len(w))
+    # generate new column for new scaled landcape resolution
+    landscape_image[new_image_width_col_name] = landscape_image[bucket_col_name].map(width_flip).astype(int)
+    landscape_image[new_image_height_col_name] = landscape_image[bucket_col_name].map(height_flip).astype(int)
+
+    
+
+    dataframe = pd.concat([landscape_image, portrait_image])
+    dataframe = dataframe.sort_index()
+
+    # catch ungrouped and remove it
+    dataframe = dataframe.dropna(axis=1)
+
+
+    # drop local pandas column
+    if not return_with_helper_columns:
+        dataframe = dataframe.drop(columns=[
+            aspect_ratio_col_name,
+            bucket_col_name,
+            ]
+        )
 
     return dataframe
 
