@@ -25,7 +25,7 @@ def process_image(
         debug (:obj:`bool`, *optional*, defaults to `False`):
             will return tuple (np.array, PIL.Image)
 
-    return: pd.DataFrame or (np.array, PIL.Image)
+    return: np.array or (np.array, PIL.Image)
     """
     image = Image.open(image_path)
 
