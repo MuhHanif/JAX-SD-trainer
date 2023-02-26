@@ -1,6 +1,7 @@
 from typing import Union
 import PIL
 from PIL import ImageFile, Image
+from transformers import CLIPTokenizer
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -87,3 +88,84 @@ def process_image(
     else:
         return (np_image)
 
+def tokenize_text(
+    model_dir:str,
+    text_prompt:list,
+    max_length:int,
+    batch_slice:int = 1,
+) -> dict:
+    r"""
+    wraps huggingface tokenizer function with some batching functionality
+    convert long token for example (1,1002) to (1,10,102)
+    start and end token are extracted and reappended for each batch 
+    
+    args:
+        model_dir (:obj:`str`):
+            path to file / hugging face path
+        text_prompt (:obj:`list`):
+            batch text to be tokenized
+        max_length (:obj:`int`):
+            maximum token before clipping
+        batch_slice (:obj:`int`, *optional*, defaults to 1):
+            if greater than 1 it will slice the token into batch evenly
+            (max_length-2) must be divisible by this value 
+
+    return: 
+        dict:
+            {"attention_mask": np.array, "input_ids": np.array}
+    """
+
+    # check
+    assert (max_length-2)%batch_slice == 0, "(max_length-2) must be divisible by batch_slice"
+
+    tokenizer = CLIPTokenizer.from_pretrained(model_dir, subfolder="tokenizer")
+    text_input = tokenizer(
+        text=text_prompt,
+        padding="max_length",
+        max_length=max_length,
+        truncation=True,
+        return_tensors="np",
+    )
+
+    max_length = tokenizer.model_max_length
+    if batch_slice > 1:
+
+        # ###[stack input ids]### #
+        value = text_input["input_ids"]
+        # strip start and end token
+        # [start, token1, token2, ..., end] to 
+        # [token1, token2, ..., tokenN]
+        content = value[:,1:-1].reshape(-1, batch_slice, max_length-2)
+        # store start and end token and then reshape it to be concatenated
+        start = np.full(
+            shape=(content.shape[0], content.shape[1], 1), 
+            fill_value=[value[:,0][0]]
+        )
+        stop = np.full(
+            shape=(content.shape[0], content.shape[1], 1), 
+            fill_value=[value[:,-1][0]]
+        )
+        # concat start and end token
+        # from shape (batch, 75*3+2)
+        # to shape (batch, 3, 77)
+        new_value = np.concatenate([start,content, stop], axis=-1)
+        text_input["input_ids"] = new_value  
+
+        # ###[stack attention mask]### #
+        mask = text_input["attention_mask"]
+          # strip start and end mask
+        # [start, mask1, mask2, ..., end] to 
+        # [mask1, mask2, ..., maskN]
+        content = mask[:,1:-1].reshape(-1, batch_slice, max_length-2)
+        # store start and end mask and then reshape it to be concatenated
+        start = np.full(
+            shape=(content.shape[0], content.shape[1], 1), 
+            fill_value=[mask[:,0][0]]
+        )
+        # concat start and end mask
+        # from shape (batch, 75*3+2)
+        # to shape (batch, 3, 77)
+        new_value = np.concatenate([start, start, content], axis=-1)
+        text_input["attention_mask"] = new_value 
+
+    return text_input
