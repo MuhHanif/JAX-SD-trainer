@@ -35,7 +35,8 @@ def process_image(
     major_axis = image.size.index(major_axis_value)
     major_axis_rescale = rescale_size[minor_axis]/image.size[minor_axis] * image.size[major_axis]
 
-    # scale image 
+    # scale image
+    # TODO: instead using thumbnail use rescale with integer scale
     sampling_algo = PIL.Image.LANCZOS
     if major_axis_rescale >= rescale_size[major_axis] and minor_axis == 0:
         # ("x is smaller than y and y is larger than y scaled")
@@ -85,3 +86,4 @@ def process_image(
         return (np_image, image)
     else:
         return (np_image)
+
