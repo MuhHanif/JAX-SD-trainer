@@ -2,6 +2,7 @@ from typing import Union, Callable
 import PIL
 from PIL import ImageFile, Image
 import pandas as pd
+import numpy as np
 
 from transformers import CLIPTokenizer
 
