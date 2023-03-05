@@ -3,7 +3,7 @@ import PIL
 from PIL import ImageFile, Image
 import pandas as pd
 import numpy as np
-
+import pathlib
 from transformers import CLIPTokenizer
 
 
