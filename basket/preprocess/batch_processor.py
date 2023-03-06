@@ -86,7 +86,7 @@ def process_image(
         return (np_image)
 
 def tokenize_text(
-    model_dir:str,
+    tokenizer:CLIPTokenizer,
     text_prompt:list,
     max_length:int,
     batch_slice:int = 1,
@@ -97,8 +97,8 @@ def tokenize_text(
     start and end token are extracted and reappended for each batch 
     
     args:
-        model_dir (:obj:`str`):
-            path to file / hugging face path
+        tokenizer (:obj:`CLIPTokenizer`):
+            tokenizer class
         text_prompt (:obj:`list`):
             batch text to be tokenized
         max_length (:obj:`int`):
@@ -115,7 +115,6 @@ def tokenize_text(
     # check
     assert (max_length-2)%batch_slice == 0, "(max_length-2) must be divisible by batch_slice"
 
-    tokenizer = CLIPTokenizer.from_pretrained(model_dir, subfolder="tokenizer")
     text_input = tokenizer(
         text=text_prompt,
         padding="max_length",
@@ -170,6 +169,7 @@ def tokenize_text(
 def generate_batch(
     process_image_fn:Callable[[str, tuple], np.array],
     tokenize_text_fn:Callable[[str, str, int], dict],
+    tokenizer:CLIPTokenizer,
     dataframe:pd.DataFrame, 
     folder_path:str,
     image_name_col:str,
@@ -190,6 +190,8 @@ def generate_batch(
             process_image function
         process_image_fn (:obj:`Callable`):
             tokenize_text function
+        tokenizer (:obj:`CLIPTokenizer`):
+            tokenizer class
         dataframe (:obj:`pd.DataFrame`):
             input dataframe
         folder_path (:obj:`str`):
@@ -239,7 +241,7 @@ def generate_batch(
     # ###[process token]### #
     batch_prompt = dataframe.loc[:,caption_col].tolist()
     tokenizer_dict = tokenize_text_fn(
-        model_dir=tokenizer_path, 
+        tokenizer=tokenizer, 
         text_prompt=batch_prompt, 
         max_length=caption_token_length, 
         batch_slice=batch_slice
