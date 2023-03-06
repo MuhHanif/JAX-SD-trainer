@@ -33,28 +33,14 @@ def process_image(
     """
     image = Image.open(image_path)
 
-    # get smallest and largest res from image
-    minor_axis_value = min(image.size)
-    minor_axis = image.size.index(minor_axis_value)
-    major_axis_value = max(image.size)
-    major_axis = image.size.index(major_axis_value)
-    major_axis_rescale = rescale_size[minor_axis]/image.size[minor_axis] * image.size[major_axis]
+    # find the scaling factor for each axis
+    x_scale = rescale_size[0], image.size[0]
+    y_scale = rescale_size[1], image.size[1]
+    scaling_factor = max(x_scale, y_scale)
 
-    # scale image
-    # TODO: instead using thumbnail use rescale with integer scale
-    sampling_algo = PIL.Image.LANCZOS
-    if major_axis_rescale >= rescale_size[major_axis] and minor_axis == 0:
-        # ("x is smaller than y and y is larger than y scaled")
-        image.thumbnail((rescale_size[minor_axis], rescale_size[major_axis] * upper_bound), sampling_algo)
-    elif major_axis_rescale < rescale_size[major_axis] and minor_axis == 0:
-        # ("x is smaller than y but y is smaller than y scaled")
-        image.thumbnail((rescale_size[minor_axis] * upper_bound, rescale_size[major_axis]), sampling_algo)
-    elif major_axis_rescale >= rescale_size[major_axis] and minor_axis == 1:
-        # ("y is smaller than x and x is larger than x scaled")
-        image.thumbnail((rescale_size[major_axis] * upper_bound, rescale_size[minor_axis]), sampling_algo)
-    else:
-        # ("y is smaller than x but x is smaller than x scaled")
-        image.thumbnail((rescale_size[major_axis], rescale_size[minor_axis] * upper_bound), sampling_algo)
+    # rescale image with scaling factor    
+    new_scale = [round(image.size[0]*scaling_factor), round(image_size[1]*scaling_factor)]
+    image = image.resize(new_scale, resample=sampling_algo)
 
     # warning
     if max(image.size) < max(rescale_size):
