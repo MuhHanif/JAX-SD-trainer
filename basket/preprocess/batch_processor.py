@@ -34,19 +34,26 @@ def process_image(
     image = Image.open(image_path)
 
     # find the scaling factor for each axis
-    x_scale = rescale_size[0], image.size[0]
-    y_scale = rescale_size[1], image.size[1]
+    x_scale = rescale_size[0] / image.size[0]
+    y_scale = rescale_size[1] / image.size[1]
     scaling_factor = max(x_scale, y_scale)
 
     # rescale image with scaling factor    
-    new_scale = [round(image.size[0]*scaling_factor), round(image_size[1]*scaling_factor)]
+    new_scale = [round(image.size[0]*scaling_factor), round(image.size[1]*scaling_factor)]
+    sampling_algo = PIL.Image.LANCZOS
     image = image.resize(new_scale, resample=sampling_algo)
-
+    
+    # get smallest and largest res from image
+    minor_axis_value = min(image.size)
+    minor_axis = image.size.index(minor_axis_value)
+    major_axis_value = max(image.size)
+    major_axis = image.size.index(major_axis_value)
+    
     # warning
     if max(image.size) < max(rescale_size):
         print(f"[WARN] image {image_path} is smaller than designated batch, zero pad will be added")
     
-    if minor_axis == 0 or  major_axis_rescale < rescale_size[major_axis]:
+    if minor_axis == 0:
         # left and right same crop top and bottom
         top = (image.size[1] - rescale_size[1])//2
         bottom = (image.size[1] + rescale_size[1])//2
