@@ -40,7 +40,7 @@ def process_image(
 
     # rescale image with scaling factor    
     new_scale = [round(image.size[0]*scaling_factor), round(image.size[1]*scaling_factor)]
-    sampling_algo = PIL.Image.LANCZOS
+    sampling_algo = PIL.Image.NEAREST
     image = image.resize(new_scale, resample=sampling_algo)
     
     # get smallest and largest res from image
