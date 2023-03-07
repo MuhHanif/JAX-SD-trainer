@@ -246,7 +246,9 @@ def generate_batch(
         max_length=caption_token_length, 
         batch_slice=batch_slice
     )
-    output = tokenizer_dict
+    output = {}
     output["pixel_values"] = batch_image
+    output["input_ids"] = tokenizer_dict.input_ids
+    output["attention_mask"] = tokenizer_dict.attention_mask
 
     return output
