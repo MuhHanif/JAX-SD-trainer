@@ -88,6 +88,61 @@ def discrete_scale_to_equal_area_old(
 
     return dataframe
 
+def scale_by_minimum_axis(
+    dataframe:pd.DataFrame,
+    image_width_col:str,
+    image_height_col:str,
+    new_image_height_col:str,
+    new_image_width_col:str,
+    target_minimum_scale:int = 512,
+    target_maximum_scale:int = 1024,
+) -> pd.DataFrame:
+    r"""
+    scale the image resolution to nearest multiple value 
+    with less or equal to the maximum area constraint
+
+    note:
+        this code assumes that the image is larger than maximum area
+        if the image is smaller than maximum area it will get scaled up
+    
+    args:
+        dataframe (:obj:`pd.DataFrame`):
+            input dataframe
+        image_width_col (:obj:`str`):
+            target column width
+        image_height_col (:obj:`str`):
+            target column height
+        new_image_width_col (:obj:`str`):
+            column name for new width value
+        new_image_height_col (:obj:`str`):
+            column name for new height value
+        target_minimum_scale (:obj:`int`, *optional*, defaults to 512):
+            minimum axis pixel count (must be divisible by 64)
+        target_maximum_scale (:obj:`int`, *optional*, defaults to 1024):
+            maximum axis pixel count (must be divisible by 64)
+        
+    return: pd.DataFrame
+    """
+
+    min_axis = dataframe[[image_height_col, image_width_col]].min(axis=1)
+    
+    scale_factor =  target_minimum_scale / min_axis
+
+    new_width = (round(dataframe[image_width_col] * scale_factor) // 64 * 64).astype(int)
+    new_height = (round(dataframe[image_height_col] * scale_factor) // 64 * 64).astype(int)
+
+    dataframe[new_image_height_col] = new_height
+    dataframe[new_image_width_col] = new_width
+
+    new_res_col = [new_image_width_col, new_image_height_col]
+
+    dataframe[new_res_col] = dataframe[new_res_col].apply(
+        np.clip, 
+        a_min=target_minimum_scale, 
+        a_max=target_maximum_scale
+    )
+    return dataframe
+
 def discrete_scale_to_equal_area(
     dataframe:pd.DataFrame,
     image_width_col_name:str,
