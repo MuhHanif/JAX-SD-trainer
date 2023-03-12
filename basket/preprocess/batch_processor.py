@@ -237,6 +237,8 @@ def generate_batch(
         batch_image.append(image) 
     # stack image into neat array
     batch_image = np.stack(batch_image)
+    # as contiguous array
+    batch_image = np.ascontiguousarray(batch_image)
 
     # ###[process token]### #
     batch_prompt = dataframe.loc[:,caption_col].tolist()
