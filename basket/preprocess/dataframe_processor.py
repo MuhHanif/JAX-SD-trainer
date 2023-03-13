@@ -368,6 +368,92 @@ def resolution_bucketing_batch(
 
     return dataframe
 
+def resolution_bucketing_batch_with_chunking(
+    dataframe:pd.DataFrame,
+    image_height_col_name:str,
+    image_width_col_name:str,
+    seed:int = 0,
+    bucket_batch_size:int = 8,
+    repeat_batch:int = 20,
+    bucket_group_col_name = "bucket_reso"
+) -> pd.DataFrame:
+    r"""
+    create aspect ratio bucket and batch it but with additional chunk
+    so swap overhead of jax compiled function is minimized
+
+    note:
+        non full batch will get dropped
+
+    args:
+        dataframe (:obj:`pd.DataFrame`):
+            input dataframe
+        image_height_col_name (:obj:`str`):
+            target column height
+        image_width_col_name (:obj:`str`):
+            target column width
+        seed (:obj:`int`, *optional*, defaults to 0):
+            rng seed for reproducibility
+        bucket_batch_size (:obj: `int`, *optional*, default to 8):
+            size of the bucket batch, non full batch will get dropped
+        repeat_batch (:obj: `int`, *optional*, default to 20):
+            how many times batch with the same resolution is repeated
+        bucket_group_col_name (:obj:`str`):
+            bucket column name to store randomized order
+
+    return: pd.DataFrame
+    """
+
+    # randomize the dataframe
+    dataframe = dataframe.sample(frac=1, replace=False, random_state=seed)
+    
+    # create group from resolution 
+    bucket_group = dataframe.groupby([image_width_col_name, image_height_col_name])
+    
+    first_batch = []
+    remainder_batch = []
+    tail_batch = []
+    batch_counter = 0
+    new_dataframe = pd.DataFrame()
+          
+    for bucket, data in bucket_group:
+        
+        # generate first batch
+        first_sample = data.sample(bucket_batch_size, replace=False, random_state=seed)
+        first_batch.append(first_sample)
+
+        # remaining batch
+        data = data[~data.index.isin(first_sample.index)]
+        
+        # strip tail end bucket because it's not full bucket
+        tail_end_length = len(data) % bucket_batch_size
+        if tail_end_length != 0:
+            data = data.iloc[:-tail_end_length,:]
+            
+        # generate remainder and tail batch
+        # this ensure resolution get repeated so jax does not have
+        # to swap compiled cache back and forth too frequently
+        mini_group = len(data) % (bucket_batch_size * repeat_batch)
+        if mini_group != 0:
+            remainder_data = data.iloc[:-mini_group,:]
+            
+            # store the last bit 
+            tail_data = data[~data.index.isin(remainder_data.index)]
+            tail_batch.append(tail_data)
+            
+        # store mini group chunk
+        for i in range(0, len(remainder_data), (bucket_batch_size * repeat_batch)):
+            chunk = remainder_data.iloc[i:i + (bucket_batch_size * repeat_batch)]
+            remainder_batch.append(chunk)
+        
+        # shuffle the list
+        random.Random(seed+len(first_batch)).shuffle(first_batch)
+        random.Random(seed+len(remainder_batch)).shuffle(remainder_batch)
+        random.Random(seed+len(tail_batch)).shuffle(tail_batch)
+
+    new_dataframe = pd.concat(first_batch + remainder_batch + tail_batch, ignore_index=True)
+    
+    return new_dataframe
+
 def tag_suffler_to_comma_separated(tags:str, seed:int) -> str:
     r"""
     suffle and reformat tag from `this_is a_tag to_suffle`
