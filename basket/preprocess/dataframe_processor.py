@@ -312,7 +312,7 @@ def resolution_bucketing_batch(
         group_count = group_count + 1
 
         # shuffle rows within group
-        data = data.sample(frac=1, random_state=seed)
+        data = data.sample(frac=1, replace=False, random_state=seed)
         
         # create ordered index for generating bucket batch
         data = data.reset_index()
