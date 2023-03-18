@@ -433,6 +433,7 @@ def resolution_bucketing_batch_with_chunking(
         # this ensure resolution get repeated so jax does not have
         # to swap compiled cache back and forth too frequently
         mini_group = len(data) % (bucket_batch_size * repeat_batch)
+        remainder_data = data
         if mini_group != 0:
             remainder_data = data.iloc[:-mini_group,:]
             
