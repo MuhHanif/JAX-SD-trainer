@@ -4,10 +4,58 @@ from PIL import ImageFile, Image
 import pandas as pd
 import numpy as np
 import pathlib
+import requests
+from io import BytesIO
 from transformers import CLIPTokenizer
 
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+def stream_image(url:str, threshold_size:int=512, debug:bool=True) -> Image:
+    r"""
+    stream image from internet given url
+    
+    args:
+        url (:obj:`str`):
+            image url
+        rescale_size (:obj:`list` or `tuple`):
+            width and height target
+        threshold_size (:obj:`int`, *optional*, defaults to 512):
+            minimum resolution
+        debug (:obj:`bool`, *optional*, defaults to `False`):
+            toggle print debug
+
+    return: PIL.Image or None
+    """
+    
+    try:
+        # get images from the internet
+        s = requests.Session()
+        s.mount('https://', requests.adapters.HTTPAdapter(max_retries=3))
+        response = s.get(url, timeout=1)
+
+        # Open the image using the Pillow library
+        try:
+            image = Image.open(BytesIO(response.content))
+            
+            # Check if the image is large enough 
+            # if tru then return PIL image object
+            if image.size[0] >= threshold_size and image.size[1] >= threshold_size:
+                return image
+            else:
+                if debug:
+                    print(f"Image {url} is too small, skipping.")
+                pass
+            
+        except Exception as e:
+            if debug:
+                print(f"Error opening image {url}: {e}")
+            pass
+
+    except Exception as e:
+        if debug:
+            print(f"Error retrieving image {url}: {e}")
+        pass
 
 def process_image(
     image_path:str, 
