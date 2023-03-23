@@ -217,7 +217,7 @@ def tokenize_text(
         text_input["attention_mask"] = new_value 
 
     return text_input
-file
+
 def generate_batch(
     process_image_fn:Callable[[str, tuple], np.array],
     tokenize_text_fn:Callable[[str, str, int], dict],
