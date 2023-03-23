@@ -58,8 +58,9 @@ def stream_image(url:str, threshold_size:int=512, debug:bool=True) -> Image:
         pass
 
 def process_image(
-    image_path:str, 
     rescale_size:Union[list, tuple],
+    image:Image = None,
+    image_path:str = None, 
     upper_bound:int = 10,
     debug:bool = False
 ) -> Union[np.array, tuple]:
@@ -68,18 +69,21 @@ def process_image(
     it as numpy
     
     args:
-        image_path (:obj:`str`):
-            path to file
         rescale_size (:obj:`list` or `tuple`):
             width and height target
+        image (:obj:`PIL.Image` defaults to `None`):
+            image to process if `none` then it will try to read from `image_path`
+        image_path (:obj:`str` defaults to `None`):
+            path to file 
         upper_bound (:obj:`int`, *optional*, defaults to 10):
-            major axis obund (not important, just set it as high as possible)
+            major axis bound (not important, just set it as high as possible)
         debug (:obj:`bool`, *optional*, defaults to `False`):
             will return tuple (np.array, PIL.Image)
 
     return: np.array or (np.array, PIL.Image)
     """
-    image = Image.open(image_path)
+    if image == None:
+        image = Image.open(image_path)
 
     # find the scaling factor for each axis
     x_scale = rescale_size[0] / image.size[0]
@@ -213,7 +217,7 @@ def tokenize_text(
         text_input["attention_mask"] = new_value 
 
     return text_input
-
+file
 def generate_batch(
     process_image_fn:Callable[[str, tuple], np.array],
     tokenize_text_fn:Callable[[str, str, int], dict],
