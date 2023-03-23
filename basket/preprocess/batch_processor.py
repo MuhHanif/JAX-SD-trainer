@@ -284,7 +284,7 @@ def generate_batch(
 
         # grab iamge from path and then process it
         image_path = pathlib.Path(folder_path, image_name)
-        image = process_image_fn(image_path, width_height)
+        image = process_image_fn(image_path=image_path, rescale_size=width_height)
         
         batch_image.append(image) 
     # stack image into neat array
