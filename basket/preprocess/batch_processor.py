@@ -96,7 +96,7 @@ def process_image(
 
     # rescale image with scaling factor    
     new_scale = [round(image.size[0]*scaling_factor), round(image.size[1]*scaling_factor)]
-    sampling_algo = PIL.Image.NEAREST
+    sampling_algo = PIL.Image.LANCZOS
     image = image.resize(new_scale, resample=sampling_algo)
     
     # get smallest and largest res from image
@@ -358,7 +358,13 @@ def stream_data(
     elif debug:
         print("dataframe already has `check_col` in it")
 
-    # select rows that yet to be processed
+    # TODO:
+    # select rows that yet to be processed THIS SELECTION IS COSTLY!
+    # refactor this to put it into separate bins instead
+    # need to return this unselected df and only process the selected df
+    # that will remove this boolean comparison overhead
+    # imagine if i use this for the entire laion dataset lol
+    # also stream process need to be refactored to so it returned 2 df instead of 1
     selected_df = df[df[check_col]==-1]
     unselected_df = df[df[check_col]!=-1]
     
@@ -447,6 +453,7 @@ def stream_data(
                 # why it couldn't get the image
                 df.iloc[counter, df.columns.get_loc(check_col)] = -2
                 
+            # also this counter should be inside else statement
             counter = counter + 1
 
         # this is convoluted but my mind is hazy rn so let it be
