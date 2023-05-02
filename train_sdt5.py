@@ -19,12 +19,12 @@ import numpy as np
 # have to wait everything to compile again ever
 from jax.experimental.compilation_cache import compilation_cache as cc
 
-cache_dir = "/root/project/JAX-SD-trainer/jax_reusable_cache"
+cache_dir = "/home/user/data_dump/jax_reusable_cache"
 if jax.devices()[0].platform == "tpu":
     cc.initialize_cache(cache_dir)
 
 # all ML stuff
-from transformers import CLIPFeatureExtractor, CLIPTokenizer, FlaxCLIPTextModel
+from transformers import CLIPFeatureExtractor, FlaxT5EncoderModel, T5Tokenizer
 from diffusers import (
     FlaxAutoencoderKL,
     FlaxDDPMScheduler,
@@ -51,7 +51,7 @@ from basket.preprocess.dataframe_processor import (
     scale_by_minimum_axis,
 )
 
-start_epoch = 0
+start_epoch = 1
 number_of_epoch = 10
 
 
@@ -62,12 +62,12 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     seed = 42 + epoch
 
     # pandas bucketing
-    csv_file = f"/root/project/JAX-SD-trainer/basket/laion_aesthetics_1024_33M_{epoch+1}.parquet"
-    image_dir = f"/root/project/dataset/dataset_{epoch+1}"
-    batch_num = 1
+    csv_file = f"/home/user/laion_aesthetics_1024_33M_{epoch+1}.parquet"
+    image_dir = f"/home/user/data_dump/laion"
+    batch_num = 2
     batch_size = jax.device_count() * batch_num
-    maximum_resolution_area = [576**2, 704**2, 832**2, 960**2, 1088**2]
-    bucket_lower_bound_resolution = [384, 512, 576, 704, 832]
+    maximum_resolution_area = [512**2]  # [576**2, 704**2, 832**2, 960**2, 1088**2]
+    bucket_lower_bound_resolution = [256]  # [384, 512, 576, 704, 832]
     maximum_axis = 1024
     minimum_axis = 512
     # if true maximum_resolution_area and bucket_lower_bound_resolution not used
@@ -77,21 +77,21 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     shuffle_tags = False
 
     # batch generator (dataloader)
-    image_folder = f"/root/project/dataset/dataset_{epoch+1}"
+    image_folder = f"/home/user/data_dump/laion"
     image_name_col = "file"
     orig_width_height = ["WIDTH", "HEIGHT"]
     width_height = ["new_image_width", "new_image_height"]
     caption_col = "TEXT"
     hash_col = "hash"
     extension = ".webp"
-    token_concatenate_count = 3
-    token_length = 75 * token_concatenate_count + 2
+    token_concatenate_count = 1
+    token_length = 512  # 75 * token_concatenate_count + 2
 
     # diffusers model
     # initial model
-    base_model_name = "stable-diffusion-v1-5-flax-e"
+    base_model_name = "sd1.5-t5-e"
     model_dir = (
-        f"/root/project/dataset/{base_model_name}{epoch}"  # continue from last model
+        f"/home/user/data_dump/{base_model_name}{epoch}"  # continue from last model
     )
     weight_dtype = jnp.bfloat16  # mixed precision training
     optimizer_algorithm = "lion"
@@ -107,14 +107,14 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     save_step = 10000
     # saved model name
     model_name = f"{base_model_name}{epoch+1}"
-    output_dir = f"/root/project/dataset/{model_name}"
+    output_dir = f"/home/user/data_dump/{model_name}"
     print_loss = True
-    debug = False  # enable to perform short training loop
+    debug = True  # enable to perform short training loop
     average_loss_step_count = 100
     # let unet decide the color to not be centered around 0 mean
     # enable only at the last epoch
     use_offset_noise = True
-    strip_bos_eos_token = True
+    strip_bos_eos_token = False
 
     # logger
     log_file_output = "logs.txt"
@@ -220,9 +220,9 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
 
     # ===============[load model to CPU]=============== #
 
-    tokenizer = CLIPTokenizer.from_pretrained(model_dir, subfolder="tokenizer")
+    tokenizer = T5Tokenizer.from_pretrained(model_dir, subfolder="tokenizer")
 
-    text_encoder, text_encoder_params = FlaxCLIPTextModel.from_pretrained(
+    text_encoder, text_encoder_params = FlaxT5EncoderModel.from_pretrained(
         model_dir, subfolder="text_encoder", dtype=weight_dtype, _do_init=False
     )
 
@@ -542,6 +542,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     ):
         # loop until queue is full
         for batch in list_of_batch:
+            tic = time.time()
             current_batch = generate_batch(
                 process_image_fn=process_image,
                 tokenize_text_fn=tokenize_text,
@@ -558,11 +559,14 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
                 tokenizer_path=model_dir,
                 batch_slice=token_concatenate_count,
             )
+            toc = time.time()
             if print_debug and queue.full():
                 print("queue is full!")
+                print(round(toc - tic, 2))
             # put task in queue
             queue.put(current_batch)
             if print_debug:
+                print(round(toc - tic, 2))
                 print(f"putting task {batch} into queue")
 
     # ===============[training loop]=============== #

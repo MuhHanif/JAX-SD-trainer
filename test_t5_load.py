@@ -19,15 +19,15 @@ import jax.numpy as jnp
 # ====================[Init all models]==================== #
 
 base_model_name = "stable-diffusion-v1-5-flax-e"
-model_dir = "/home/user/e6_dump/size-576-704-832-squared_no-eos-bos_shuffled_lion-optim-low-lr-e20"
+model_dir = "/home/user/data_dump/sd1.5-t5-e0"
 weight_dtype = jnp.bfloat16
 
-tokenizer = CLIPTokenizer.from_pretrained(model_dir, subfolder="tokenizer")
+# tokenizer = CLIPTokenizer.from_pretrained(model_dir, subfolder="tokenizer")
 
 
-text_encoder, text_encoder_params = FlaxCLIPTextModel.from_pretrained(
-    model_dir, subfolder="text_encoder", dtype=weight_dtype, _do_init=False
-)
+# text_encoder, text_encoder_params = FlaxCLIPTextModel.from_pretrained(
+#     model_dir, subfolder="text_encoder", dtype=weight_dtype, _do_init=False
+# )
 
 vae, vae_params = FlaxAutoencoderKL.from_pretrained(
     model_dir,
@@ -39,11 +39,11 @@ unet, unet_params = FlaxUNet2DConditionModel.from_pretrained(
     model_dir, subfolder="unet", dtype=weight_dtype, use_memory_efficient=True
 )
 
-t5_tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-base")
+t5_tokenizer = T5Tokenizer.from_pretrained(model_dir, subfolder="tokenizer")
 
 
 t5_encoder, t5_encoder_params = FlaxT5EncoderModel.from_pretrained(
-    "google/flan-t5-base", dtype=weight_dtype, _do_init=False
+    model_dir, subfolder="text_encoder", dtype=weight_dtype, _do_init=False
 )
 
 
@@ -53,10 +53,6 @@ scheduler, _ = FlaxPNDMScheduler.from_pretrained(
 
 
 # ====================[save pipeline]==================== #
-
-
-def get_params_to_save(params):
-    return jax.device_get(jax.tree_util.tree_map(lambda x: x[0], params))
 
 
 pipeline = FlaxStableDiffusionPipeline(
@@ -73,11 +69,11 @@ pipeline = FlaxStableDiffusionPipeline(
 
 
 pipeline.save_pretrained(
-    "testing",
+    "/home/user/data_dump/sd1.5-t5-e0-test",
     params={
-        "text_encoder": get_params_to_save(t5_encoder_params),
-        "vae": get_params_to_save(vae_params),
-        "unet": get_params_to_save(unet_params),
+        "text_encoder": (t5_encoder_params),
+        "vae": (vae_params),
+        "unet": (unet_params),
     },
 )
 
