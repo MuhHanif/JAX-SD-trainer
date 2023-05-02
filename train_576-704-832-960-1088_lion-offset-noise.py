@@ -74,6 +74,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     # else maximum_axis and minimum_axis is not used
     use_ragged_batching = False
     repeat_batch = 10
+    shuffle_tags = False
 
     # batch generator (dataloader)
     image_folder = f"/root/project/dataset/dataset_{epoch+1}"
@@ -112,7 +113,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     average_loss_step_count = 100
     # let unet decide the color to not be centered around 0 mean
     # enable only at the last epoch
-    use_offset_noise = False
+    use_offset_noise = True
     strip_bos_eos_token = True
 
     # logger
@@ -203,15 +204,17 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
 
     # NOTE: SHUFFLE TAGS MUST NOT BE PERFORMED FOR LAION DATASET!
     # shuffle tags
-    # def shuffle(tags, seed):
-    #     tags = tags.split(",")
-    #     random.Random(len(tags) * seed).shuffle(tags)
-    #     tags = ",".join(tags)
-    #     return tags
+    def shuffle(tags, seed):
+        tags = tags.split(",")
+        random.Random(len(tags) * seed).shuffle(tags)
+        tags = ",".join(tags)
+        return tags
 
-    # data_processed[caption_col] = data_processed[caption_col].apply(
-    #     lambda x: shuffle(x, seed)
-    # )
+    if shuffle_tags:
+        logging.info("shuffling captions")
+        data_processed[caption_col] = data_processed[caption_col].apply(
+            lambda x: shuffle(x, seed)
+        )
 
     logging.info("creating bucket and dataloader sequence")
 
