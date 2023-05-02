@@ -18,16 +18,10 @@ import jax.numpy as jnp
 
 # ====================[Init all models]==================== #
 
-base_model_name = "stable-diffusion-v1-5-flax-e"
-model_dir = "/home/user/data_dump/sd1.5-t5-e0"
+# TODO: extract this variable out
+out_dir = "sd1.5-t5-base"
+model_dir = "/home/user/data_dump/sd1.5-t5-e0"  # insert SD1.5 flax model dir here
 weight_dtype = jnp.bfloat16
-
-# tokenizer = CLIPTokenizer.from_pretrained(model_dir, subfolder="tokenizer")
-
-
-# text_encoder, text_encoder_params = FlaxCLIPTextModel.from_pretrained(
-#     model_dir, subfolder="text_encoder", dtype=weight_dtype, _do_init=False
-# )
 
 vae, vae_params = FlaxAutoencoderKL.from_pretrained(
     model_dir,
@@ -39,11 +33,11 @@ unet, unet_params = FlaxUNet2DConditionModel.from_pretrained(
     model_dir, subfolder="unet", dtype=weight_dtype, use_memory_efficient=True
 )
 
-t5_tokenizer = T5Tokenizer.from_pretrained(model_dir, subfolder="tokenizer")
+t5_tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-base")
 
 
 t5_encoder, t5_encoder_params = FlaxT5EncoderModel.from_pretrained(
-    model_dir, subfolder="text_encoder", dtype=weight_dtype, _do_init=False
+    "google/flan-t5-base", dtype=weight_dtype, _do_init=False
 )
 
 
@@ -69,7 +63,7 @@ pipeline = FlaxStableDiffusionPipeline(
 
 
 pipeline.save_pretrained(
-    "/home/user/data_dump/sd1.5-t5-e0-test",
+    out_dir,
     params={
         "text_encoder": (t5_encoder_params),
         "vae": (vae_params),
