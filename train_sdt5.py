@@ -51,7 +51,7 @@ from basket.preprocess.dataframe_processor import (
     scale_by_minimum_axis,
 )
 
-start_epoch = 1
+start_epoch = 0
 number_of_epoch = 10
 
 
@@ -62,9 +62,9 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     seed = 42 + epoch
 
     # pandas bucketing
-    csv_file = f"/home/user/laion_aesthetics_1024_33M_{epoch+1}.parquet"
+    csv_file = f"/home/user/laion_aesthetics_1024_33M_1_c{epoch+1}.parquet"
     image_dir = f"/home/user/data_dump/laion"
-    batch_num = 2
+    batch_num = 4
     batch_size = jax.device_count() * batch_num
     maximum_resolution_area = [512**2]  # [576**2, 704**2, 832**2, 960**2, 1088**2]
     bucket_lower_bound_resolution = [256]  # [384, 512, 576, 704, 832]
