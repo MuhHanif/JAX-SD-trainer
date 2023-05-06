@@ -579,6 +579,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     ), f"DATA IS NOT CLEANLY DIVISIBLE BY {batch_size} {len(data_processed)%batch_size}"
     batch_order = list(range(0, len(data_processed) // batch_size))
 
+    # this just an ordered list now XD [0,1,2, ..., n]
     batch_order = batch_order[steps_offset:]
 
     # perfom short training run for debugging purposes

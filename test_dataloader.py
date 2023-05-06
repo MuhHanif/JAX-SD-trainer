@@ -2,7 +2,8 @@ import random
 import time
 import logging
 import sys
-from multiprocessing import Process, Queue
+from queue import Queue as thread_queue
+from multiprocessing import Process, Queue, Value, Lock
 import os
 import pandas as pd
 import jax
@@ -16,6 +17,7 @@ from basket.preprocess.batch_processor import (
     generate_batch,
     process_image,
     tokenize_text,
+    worker_batching,
 )
 from basket.preprocess.dataframe_processor import (
     discrete_scale_to_equal_area,
@@ -44,6 +46,7 @@ repeat_batch = 10
 shuffle_tags = False
 
 # batch generator (dataloader)
+worker_count = 5
 image_folder = f"/home/user/data_dump/laion"
 image_name_col = "file"
 orig_width_height = ["WIDTH", "HEIGHT"]
@@ -140,9 +143,18 @@ tokenizer = T5Tokenizer.from_pretrained(model_dir, subfolder="tokenizer")
 
 # spawn dataloader in another core
 def generate_batch_wrapper(
-    list_of_batch: list, queue: Queue, print_debug: bool = False
+    lock: Lock,
+    count: Value,
+    worker_order: int,
+    numb_of_worker: int,
+    list_of_batch: list,
+    queue: Queue,
+    print_debug: bool = False,
 ):
+    internal_queue = thread_queue(numb_of_worker)
     # loop until queue is full
+    # list of batch is the entiere batch assigned to this worker
+    print(list_of_batch)
     for batch in list_of_batch:
         tic = time.time()
         current_batch = generate_batch(
@@ -166,10 +178,36 @@ def generate_batch_wrapper(
             print("queue is full!")
             print(round(toc - tic, 2))
         # put task in queue
-        queue.put(current_batch)
-        if print_debug:
-            print(round(toc - tic, 2))
-            print(f"putting task {batch} into queue")
+
+        if not internal_queue.full():
+            internal_queue.put([[current_batch, batch]])
+            if print_debug:
+                print(round(toc - tic, 2))
+                print(f"putting task {batch} into internal queue")
+
+        if internal_queue.full():
+            # blocking while loop until counter is incremented from another worker
+            if count.value % numb_of_worker != worker_order:
+                while count.value % numb_of_worker != worker_order:
+                    time.sleep(1)
+                    print(f"{worker_order} modulo is not 0, sleeping")
+            else:
+                print(
+                    f"===========================[{worker_order}]==========================="
+                )
+                with lock:
+                    print(
+                        "internal_queue is full, pushing everything to the main queue"
+                    )
+
+                    while internal_queue.empty() == False:
+                        data = internal_queue.get()
+
+                        queue.put(data)
+                        print(f"dumping {data[0][1]} into main queue{queue.qsize()}")
+
+                    count.value = count.value + 1
+                    print(count.value, batch)
 
 
 # ===============[training loop]=============== #
@@ -182,11 +220,12 @@ assert (
 ), f"DATA IS NOT CLEANLY DIVISIBLE BY {batch_size} {len(data_processed)%batch_size}"
 batch_order = list(range(0, len(data_processed) // batch_size))
 
+# this just an ordered list now XD [0,1,2, ..., n]
 batch_order = batch_order[steps_offset:]
 
 # perfom short training run for debugging purposes
 if debug:
-    batch_order = batch_order[:1000]
+    batch_order = batch_order[: worker_count * 10]
     save_step = 100
     average_loss_step_count = 20
 
@@ -203,16 +242,46 @@ global_step = 0
 checkpoint_counter = 0
 
 # store training array here
-batch_queue = Queue(maxsize=10)
+batch_queue = Queue(maxsize=100)
+
+sharded_batch_order = worker_batching(
+    batch_order=batch_order, internal_queue_length=worker_count
+)
+
+count = Value("i", 0)
+lock = Lock()
 
 # spawn another process for processing images
-batch_processor = Process(
-    target=generate_batch_wrapper, args=[batch_order, batch_queue, debug]
-)
-batch_processor.start()
-start = time.time()
+batch_workers = []
+for order, batch_shard in enumerate(sharded_batch_order):
+    batch_processor = Process(
+        target=generate_batch_wrapper,
+        args=[
+            lock,
+            count,
+            order,
+            len(sharded_batch_order),
+            batch_shard,
+            batch_queue,
+            debug,
+        ],
+    )
+    batch_workers.append(batch_processor)
 
+for worker in batch_workers:
+    worker.start()
+
+# dummy storage
+store_data = []
 # black hole loop
 for x in batch_order:
     # grab training array from queue
+    start = time.time()
     current_batch = batch_queue.get()
+    print(f"this main queue length is now {batch_queue.qsize()}")
+    print(len(current_batch))
+    # dummy storage
+    store_data.append(current_batch)
+    stop = time.time()
+    print(f"{x} swallowed took {round(stop-start,2)}s")
+    print([data[0][1] for data in store_data])
