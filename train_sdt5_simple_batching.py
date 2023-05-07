@@ -89,6 +89,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     token_concatenate_count = 1
     token_length = 512  # 75 * token_concatenate_count + 2
     worker_count = 10
+    queue_size = 200
 
     # diffusers model
     # initial model
@@ -112,7 +113,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     model_name = f"{base_model_name}{epoch+1}"
     output_dir = f"/home/user/data_dump/{model_name}"
     print_loss = True
-    debug = True  # enable to perform short training loop
+    debug = False  # enable to perform short training loop
     average_loss_step_count = 100
     # let unet decide the color to not be centered around 0 mean
     # enable only at the last epoch
@@ -725,4 +726,4 @@ for epoch in range(start_epoch, number_of_epoch):
     # useful when resuming training in the middle of the epoch
     steps_offset[0] = 0
 
-    main(epoch=epoch, steps_offset=0, lr=1e-6)
+    main(epoch=epoch, steps_offset=0, lr=2e-6)
