@@ -2,8 +2,9 @@ import random
 import time
 import logging
 import sys
+from threading import Thread
 from queue import Queue as thread_queue
-from multiprocessing import Process, Queue, Value, Lock
+from multiprocessing.dummy import Pool
 import os
 import pandas as pd
 import jax
@@ -143,71 +144,57 @@ tokenizer = T5Tokenizer.from_pretrained(model_dir, subfolder="tokenizer")
 
 # spawn dataloader in another core
 def generate_batch_wrapper(
-    lock: Lock,
-    count: Value,
-    worker_order: int,
-    numb_of_worker: int,
-    list_of_batch: list,
-    queue: Queue,
-    print_debug: bool = False,
+    batch: list,
 ):
-    internal_queue = thread_queue(numb_of_worker)
-    # loop until queue is full
-    # list of batch is the entiere batch assigned to this worker
-    print(list_of_batch)
-    for batch in list_of_batch:
-        tic = time.time()
-        current_batch = generate_batch(
-            process_image_fn=process_image,
-            tokenize_text_fn=tokenize_text,
-            tokenizer=tokenizer,
-            dataframe=data_processed.iloc[
-                batch * batch_size : batch * batch_size + batch_size
-            ],
-            folder_path=image_folder,
-            image_name_col=image_name_col,
-            caption_col=caption_col,
-            caption_token_length=token_length,
-            width_col=width_height[0],
-            height_col=width_height[1],
-            tokenizer_path=model_dir,
-            batch_slice=token_concatenate_count,
-        )
-        toc = time.time()
-        if print_debug and queue.full():
-            print("queue is full!")
-            print(round(toc - tic, 2))
-        # put task in queue
+    tic = time.time()
+    current_batch = generate_batch(
+        process_image_fn=process_image,
+        tokenize_text_fn=tokenize_text,
+        tokenizer=tokenizer,
+        dataframe=data_processed.iloc[
+            batch * batch_size : batch * batch_size + batch_size
+        ],
+        folder_path=image_folder,
+        image_name_col=image_name_col,
+        caption_col=caption_col,
+        caption_token_length=token_length,
+        width_col=width_height[0],
+        height_col=width_height[1],
+        tokenizer_path=model_dir,
+        batch_slice=token_concatenate_count,
+    )
+    toc = time.time()
+    return {
+        "batch_number": batch,
+        "process_time": toc - tic,
+        "numpy_data": current_batch,
+    }
 
-        if not internal_queue.full():
-            internal_queue.put([[current_batch, batch]])
-            if print_debug:
-                print(round(toc - tic, 2))
-                print(f"putting task {batch} into internal queue")
 
-        if internal_queue.full():
-            # blocking while loop until counter is incremented from another worker
-            if count.value % numb_of_worker != worker_order:
-                while count.value % numb_of_worker != worker_order:
-                    time.sleep(1)
-                    print(f"{worker_order} modulo is not 0, sleeping")
-            else:
-                print(
-                    f"===========================[{worker_order}]==========================="
-                )
-                with lock:
-                    print(
-                        "internal_queue is full, pushing everything to the main queue"
-                    )
+# thread wrapper to handle multiprocessing dataloader concurrently
+def child_thread_wrapper(queue_line, batch_order: list, number_of_workers: int = 4):
+    # split batch order into sizeable chunks that can be run for 1 pass using multiprocessing pool
+    chunks = [
+        batch_order[i : i + number_of_workers]
+        for i in range(0, len(batch_order), number_of_workers)
+    ]
 
-                    while internal_queue.empty() == False:
-                        data = internal_queue.get()
+    # use multiprocessing for generating dataset
+    results = []
+    for chunk in chunks:
+        print(chunk)
+        with Pool(processes=number_of_workers) as pool:
+            results = pool.map(generate_batch_wrapper, chunk)
 
-                        queue.put(data)
-                        print(f"dumping {data[0][1]} into main queue{queue.qsize()}")
+        # sequentially push batch into queue
+        # will block the entire loop if queue is full
+        # so no memory leak problem (i hope)
+        for result in results:
+            if queue_line.full():
+                print("queue is full!")
+            queue_line.put(result)
 
-                    count.value = count.value + 1
-                    print(count.value, batch)
+    pass
 
 
 # ===============[training loop]=============== #
@@ -225,7 +212,7 @@ batch_order = batch_order[steps_offset:]
 
 # perfom short training run for debugging purposes
 if debug:
-    batch_order = batch_order[: worker_count * 10]
+    batch_order = batch_order[:20]
     save_step = 100
     average_loss_step_count = 20
 
@@ -242,38 +229,20 @@ global_step = 0
 checkpoint_counter = 0
 
 # store training array here
-batch_queue = Queue(maxsize=100)
-
-sharded_batch_order = worker_batching(
-    batch_order=batch_order, internal_queue_length=worker_count
-)
-
-count = Value("i", 0)
-lock = Lock()
+batch_queue = thread_queue(maxsize=10)
 
 # spawn another process for processing images
-batch_workers = []
-for order, batch_shard in enumerate(sharded_batch_order):
-    batch_processor = Process(
-        target=generate_batch_wrapper,
-        args=[
-            lock,
-            count,
-            order,
-            len(sharded_batch_order),
-            batch_shard,
-            batch_queue,
-            debug,
-        ],
-    )
-    batch_workers.append(batch_processor)
+batch_processor = Thread(
+    target=child_thread_wrapper, args=[batch_queue, batch_order, 20]
+)
+batch_processor.start()
+start = time.time()
 
-for worker in batch_workers:
-    worker.start()
 
 # dummy storage
 store_data = []
 # black hole loop
+tic = time.time()
 for x in batch_order:
     # grab training array from queue
     start = time.time()
@@ -284,4 +253,6 @@ for x in batch_order:
     store_data.append(current_batch)
     stop = time.time()
     print(f"{x} swallowed took {round(stop-start,2)}s")
-    print([data[0][1] for data in store_data])
+    # print([data[0] for data in store_data])
+toc = time.time()
+print(toc - tic)
