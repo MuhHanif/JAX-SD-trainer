@@ -87,7 +87,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     hash_col = "hash"
     extension = ".webp"
     token_concatenate_count = 1
-    token_length = 512  # 75 * token_concatenate_count + 2
+    token_length = 77  # 75 * token_concatenate_count + 2
     worker_count = 10
     queue_size = 200
 
@@ -100,7 +100,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     weight_dtype = jnp.bfloat16  # mixed precision training
     optimizer_algorithm = "lion"
     adam_to_lion_scale_factor = 7
-    text_encoder_learning_rate = lr / 4 * batch_num
+    text_encoder_learning_rate = lr * batch_num
     u_net_learning_rate = lr * batch_num
     u_net_learning_rate = jax.device_put(
         np.array(u_net_learning_rate), device=jax.devices("cpu")[0]
@@ -113,12 +113,14 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     model_name = f"{base_model_name}{epoch+1}"
     output_dir = f"/home/user/data_dump/{model_name}"
     print_loss = True
-    debug = False  # enable to perform short training loop
+    debug = True  # enable to perform short training loop
     average_loss_step_count = 100
     # let unet decide the color to not be centered around 0 mean
     # enable only at the last epoch
     use_offset_noise = True
     strip_bos_eos_token = False
+    train_unet = True
+    train_text_encoder = True
 
     # logger
     log_file_output = "logs.txt"
@@ -245,81 +247,86 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     # ===============[optimizer function]=============== #
 
     if optimizer_algorithm == "adamw":
-        # optimizer for U-Net
-        u_net_constant_scheduler = optax.constant_schedule(u_net_learning_rate)
-        u_net_adamw = optax.adamw(
-            learning_rate=u_net_constant_scheduler,
-            b1=0.9,
-            b2=0.999,
-            eps=1e-08,
-            weight_decay=1e-2,
-        )
-        u_net_optimizer = optax.chain(
-            optax.clip_by_global_norm(1),  # prevent explosion
-            u_net_adamw,
-        )
-
-        # optimizer for CLIP text encoder
-        text_encoder_constant_scheduler = optax.constant_schedule(
-            text_encoder_learning_rate
-        )
-        text_encoder_adamw = optax.adamw(
-            learning_rate=text_encoder_constant_scheduler,
-            b1=0.9,
-            b2=0.999,
-            eps=1e-08,
-            weight_decay=1e-2,
-        )
-        text_encoder_optimizer = optax.chain(
-            optax.clip_by_global_norm(1),  # prevent explosion
-            text_encoder_adamw,
-        )
+        if train_unet:
+            # optimizer for U-Net
+            u_net_constant_scheduler = optax.constant_schedule(u_net_learning_rate)
+            u_net_adamw = optax.adamw(
+                learning_rate=u_net_constant_scheduler,
+                b1=0.9,
+                b2=0.999,
+                eps=1e-08,
+                weight_decay=1e-2,
+            )
+            u_net_optimizer = optax.chain(
+                optax.clip_by_global_norm(1),  # prevent explosion
+                u_net_adamw,
+            )
+        if train_text_encoder:
+            # optimizer for CLIP text encoder
+            text_encoder_constant_scheduler = optax.constant_schedule(
+                text_encoder_learning_rate
+            )
+            text_encoder_adamw = optax.adamw(
+                learning_rate=text_encoder_constant_scheduler,
+                b1=0.9,
+                b2=0.999,
+                eps=1e-08,
+                weight_decay=1e-2,
+            )
+            text_encoder_optimizer = optax.chain(
+                optax.clip_by_global_norm(1),  # prevent explosion
+                text_encoder_adamw,
+            )
 
     if optimizer_algorithm == "lion":
-        u_net_constant_scheduler = optax.constant_schedule(
-            u_net_learning_rate / adam_to_lion_scale_factor
-        )
-        text_encoder_constant_scheduler = optax.constant_schedule(
-            text_encoder_learning_rate / adam_to_lion_scale_factor
-        )
+        if train_unet:
+            u_net_constant_scheduler = optax.constant_schedule(
+                u_net_learning_rate / adam_to_lion_scale_factor
+            )
 
-        # optimizer for U-Net
-        u_net_lion = optax.lion(
-            learning_rate=u_net_constant_scheduler,
-            b1=0.9,
-            b2=0.99,
-            weight_decay=1e-2 * adam_to_lion_scale_factor,
-        )
-        u_net_optimizer = optax.chain(
-            optax.clip_by_global_norm(1),  # prevent explosion
-            u_net_lion,
-        )
+            # optimizer for U-Net
+            u_net_lion = optax.lion(
+                learning_rate=u_net_constant_scheduler,
+                b1=0.9,
+                b2=0.99,
+                weight_decay=1e-2 * adam_to_lion_scale_factor,
+            )
+            u_net_optimizer = optax.chain(
+                optax.clip_by_global_norm(1),  # prevent explosion
+                u_net_lion,
+            )
 
-        # optimizer for CLIP text encoder
-        text_encoder_lion = optax.lion(
-            learning_rate=text_encoder_constant_scheduler,
-            b1=0.9,
-            b2=0.99,
-            weight_decay=1e-2 * adam_to_lion_scale_factor,
-        )
-        text_encoder_optimizer = optax.chain(
-            optax.clip_by_global_norm(1),  # prevent explosion
-            text_encoder_lion,
-        )
+        if train_text_encoder:
+            text_encoder_constant_scheduler = optax.constant_schedule(
+                text_encoder_learning_rate / adam_to_lion_scale_factor
+            )
+            # optimizer for CLIP text encoder
+            text_encoder_lion = optax.lion(
+                learning_rate=text_encoder_constant_scheduler,
+                b1=0.9,
+                b2=0.99,
+                weight_decay=1e-2 * adam_to_lion_scale_factor,
+            )
+            text_encoder_optimizer = optax.chain(
+                optax.clip_by_global_norm(1),  # prevent explosion
+                text_encoder_lion,
+            )
 
     logging.info(f"setup optimizer: {optimizer_algorithm}")
 
     # ===============[train state and scheduler]=============== #
+    # all of this is still in host memory (CPU RAM)
+    if train_unet:
+        unet_state = train_state.TrainState.create(
+            apply_fn=unet.__call__, params=unet_params, tx=u_net_optimizer
+        )
 
-    unet_state = train_state.TrainState.create(
-        apply_fn=unet.__call__, params=unet_params, tx=u_net_optimizer
-    )
-
-    text_encoder_state = train_state.TrainState.create(
-        apply_fn=text_encoder.__call__,
-        params=text_encoder_params,
-        tx=text_encoder_optimizer,
-    )
+    if train_text_encoder:
+        text_encoder_state = train_state.TrainState.create(
+            apply_fn=text_encoder.__call__,
+            params=text_encoder_params,
+            tx=text_encoder_optimizer,
+        )
 
     noise_scheduler = FlaxDDPMScheduler(
         beta_start=0.00085,
@@ -331,9 +338,17 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     logging.info("create U-Net and CLIP text encoder train state")
 
     # ===============[replicate model parameters and state on each device]=============== #
-
-    unet_state = jax_utils.replicate(unet_state)
-    text_encoder_state = jax_utils.replicate(text_encoder_state)
+    # now replicating every params on all devices
+    if train_unet:
+        unet_state = jax_utils.replicate(unet_state)
+    else:
+        # this variable should be named params but eh i dont want to change too much of the code
+        unet_state = jax_utils.replicate(unet_params)
+    if train_text_encoder:
+        text_encoder_state = jax_utils.replicate(text_encoder_state)
+    else:
+        # this one too
+        text_encoder_state = jax_utils.replicate(text_encoder_params)
     vae_params = jax_utils.replicate(vae_params)
     noise_scheduler_state = noise_scheduler.create_state()
     logging.info("replicate model weights and biases to each TPU")
@@ -344,11 +359,26 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
         # generate rng and return new_train_rng to be used for the next iteration step
         dropout_rng, sample_rng, new_train_rng = jax.random.split(train_rng, num=3)
 
-        params = {"text_encoder": text_encoder_state.params, "unet": unet_state.params}
+        # set trainable parameters into position arg 0
+        # arg 0 is differentiated by default
+        # to lazy to set freezed and unfreezed params
+        if train_unet and train_text_encoder:
+            params = {
+                "text_encoder": text_encoder_state.params,
+                "unet": unet_state.params,
+            }
+        elif train_unet:
+            params = {"unet": unet_state.params}
+        elif train_text_encoder:
+            params = {"text_encoder": text_encoder_state.params}
+        else:
+            raise "wtf are you doing? you're not training anything"
 
         def compute_loss(params):
+            # ===============[VAE]=============== #
             # Convert images to latent space
             vae_outputs = vae.apply(
+                # grab from vae params directly
                 {"params": vae_params},
                 batch["pixel_values"],
                 deterministic=True,
@@ -362,6 +392,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
             # weird scaling don't touch it's a lazy normalization
             latents = latents * 0.18215
 
+            # ===============[Forward Diffusion]=============== #
             # Sample noise that we'll add to the latents
             # I think I should combine this with the first noise seed generator
             noise_offset_rng, noise_rng, timestep_rng = jax.random.split(
@@ -393,6 +424,8 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
             noisy_latents = noise_scheduler.add_noise(
                 noise_scheduler_state, latents, noise, timesteps
             )
+
+            # ===============[Text Encoder]=============== #
             print(batch["input_ids"].shape)
             # batch["input_ids"] shape (batch, token_append, token)
             batch_dim = batch["input_ids"].shape[0]
@@ -404,12 +437,26 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
             )
             # Get the text embedding for conditioning
             # encoder_hidden_states shape (batch & token_append, token, hidden_states)
-            encoder_hidden_states = text_encoder_state.apply_fn(
-                batch["input_ids"],
-                params=params["text_encoder"],
-                dropout_rng=dropout_rng,
-                train=True,
-            )[0]
+
+            if train_text_encoder:
+                # do forward and backward pass, carry optax state,
+                # call function from optax object
+                encoder_hidden_states = text_encoder_state.apply_fn(
+                    batch["input_ids"],
+                    # grab from differentiable params
+                    params=params["text_encoder"],
+                    dropout_rng=dropout_rng,
+                    train=True,
+                )[0]
+            else:
+                # just do forward pass here so no state so just call a function
+                encoder_hidden_states = text_encoder(
+                    batch["input_ids"],
+                    # grab the params directly
+                    params=text_encoder_state.params,
+                    dropout_rng=dropout_rng,
+                    train=False,
+                )[0]
             print(encoder_hidden_states.shape)
             # reshape encoder_hidden_states to shape (batch, token_append, token, hidden_states)
             encoder_hidden_states = jnp.reshape(
@@ -449,15 +496,29 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
                 )
             print(encoder_hidden_states.shape)
 
+            # ===============[U-NET noise prediction]=============== #
             # Predict the noise residual because predicting image is hard :P
             # essentially try to undo the noise process
-            model_pred = unet.apply(
-                {"params": params["unet"]},
-                noisy_latents,
-                timesteps,
-                encoder_hidden_states,
-                train=True,
-            ).sample
+            if train_unet:
+                # call function from optax object
+                model_pred = unet.apply(
+                    # grab from differentiable params
+                    {"params": params["unet"]},
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states,
+                    train=True,
+                ).sample
+            else:
+                # just call from pretrained
+                model_pred = unet.apply(
+                    # grab params directly
+                    {"params": unet_state},
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states,
+                    train=False,
+                ).sample
 
             # Get the target for loss depending on the prediction type
             # sd1.x use epsilon aka noise residual but sd2.1 use velocity prediction
@@ -485,10 +546,16 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
         grad = jax.lax.pmean(grad, "batch")
 
         # update weight and bias value
-        new_unet_state = unet_state.apply_gradients(grads=grad["unet"])
-        new_text_encoder_state = text_encoder_state.apply_gradients(
-            grads=grad["text_encoder"]
-        )
+        if train_unet:
+            new_unet_state = unet_state.apply_gradients(grads=grad["unet"])
+        else:
+            new_unet_state = unet_state
+        if train_text_encoder:
+            new_text_encoder_state = text_encoder_state.apply_gradients(
+                grads=grad["text_encoder"]
+            )
+        else:
+            new_text_encoder_state = text_encoder_state
 
         # calculate loss
         metrics = {"loss": loss}
