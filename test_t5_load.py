@@ -21,7 +21,7 @@ import jax.numpy as jnp
 # TODO: extract this variable out
 out_dir = "sd1.5-t5-base"
 model_dir = "/home/user/data_dump/sd1.5-t5-e0"  # insert SD1.5 flax model dir here
-weight_dtype = jnp.bfloat16
+weight_dtype = jnp.float32
 
 vae, vae_params = FlaxAutoencoderKL.from_pretrained(
     model_dir,

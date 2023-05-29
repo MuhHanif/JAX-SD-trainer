@@ -64,9 +64,9 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     seed = 42 + epoch
 
     # pandas bucketing
-    csv_file = f"/home/user/laion_aesthetics_1024_33M_1_c{epoch+1}.parquet"
+    csv_file = f"/home/user/laion_aesthetics_1024_33M_1.parquet"
     image_dir = f"/home/user/data_dump/laion"
-    batch_num = 4
+    batch_num = 6
     batch_size = jax.device_count() * batch_num
     maximum_resolution_area = [512**2]  # [576**2, 704**2, 832**2, 960**2, 1088**2]
     bucket_lower_bound_resolution = [256]  # [384, 512, 576, 704, 832]
@@ -113,14 +113,14 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     model_name = f"{base_model_name}{epoch+1}"
     output_dir = f"/home/user/data_dump/{model_name}"
     print_loss = True
-    debug = True  # enable to perform short training loop
+    debug = False  # enable to perform short training loop
     average_loss_step_count = 100
     # let unet decide the color to not be centered around 0 mean
     # enable only at the last epoch
-    use_offset_noise = True
+    use_offset_noise = False
     strip_bos_eos_token = False
     train_unet = True
-    train_text_encoder = True
+    train_text_encoder = False
 
     # logger
     log_file_output = "logs.txt"
@@ -331,7 +331,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
     noise_scheduler = FlaxDDPMScheduler(
         beta_start=0.00085,
         beta_end=0.012,
-        beta_schedule="scaled_linear",
+        beta_schedule="squaredcos_cap_v2",
         num_train_timesteps=1000,
     )
 
@@ -453,7 +453,7 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
                 encoder_hidden_states = text_encoder(
                     batch["input_ids"],
                     # grab the params directly
-                    params=text_encoder_state.params,
+                    params=text_encoder_state,
                     dropout_rng=dropout_rng,
                     train=False,
                 )[0]
@@ -573,15 +573,11 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
 
     # ===============[save model]=============== #
 
-    def checkpoint(unet_state, text_encoder_state, vae_params, output_dir):
+    def checkpoint(unet_state, text_encoder_state, vae_params, scheduler, output_dir):
         # get the first of 8 replicated weights and biases to be saved
         def get_params_to_save(params):
             return jax.device_get(jax.tree_util.tree_map(lambda x: x[0], params))
 
-        # save using different scheduler because this one is prefered for inference
-        scheduler, _ = FlaxPNDMScheduler.from_pretrained(
-            "CompVis/stable-diffusion-v1-4", subfolder="scheduler"
-        )
         # Create the pipeline using the trained modules and save it.
         pipeline = FlaxStableDiffusionPipeline(
             text_encoder=text_encoder,
@@ -717,10 +713,11 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
             for attempt in range(10):
                 try:
                     checkpoint(
-                        unet_state,
-                        text_encoder_state,
-                        vae_params,
-                        f"{output_dir}-{checkpoint_counter}",
+                        unet_state=unet_state,
+                        text_encoder_state=text_encoder_state,
+                        vae_params=vae_params,
+                        scheduler=noise_scheduler,
+                        output_dir=f"{output_dir}-{checkpoint_counter}",
                     )
                     logging.info(
                         f"=======================[saving models at {global_step} step(s)]======================="
@@ -771,9 +768,15 @@ def main(epoch=0, steps_offset=0, lr=2e-6):
 
     train_step_progress_bar.close()
     # save model
-    for attempt in range(10):
+    while True:
         try:
-            checkpoint(unet_state, text_encoder_state, vae_params, output_dir)
+            checkpoint(
+                unet_state=unet_state,
+                text_encoder_state=text_encoder_state,
+                vae_params=vae_params,
+                scheduler=noise_scheduler,
+                output_dir=output_dir,
+            )
         except Exception as e:
             time.sleep(2)
             print(e)
@@ -793,4 +796,4 @@ for epoch in range(start_epoch, number_of_epoch):
     # useful when resuming training in the middle of the epoch
     steps_offset[0] = 0
 
-    main(epoch=epoch, steps_offset=0, lr=2e-6)
+    main(epoch=epoch, steps_offset=0, lr=5e-6)
