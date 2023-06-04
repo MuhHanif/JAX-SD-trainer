@@ -32,8 +32,8 @@ epoch = 0
 seed = 42 + epoch
 steps_offset = 0
 # pandas bucketing
-csv_file = f"/home/user/laion_aesthetics_1024_33M_1_c{epoch+1}.parquet"
-image_dir = f"/home/user/data_dump/laion"
+csv_file = f"/home/user/main_storage/laion_aesthetics_1024_33M_1.parquet"
+image_dir = f"/home/user/main_storage/laion"
 batch_num = 4
 batch_size = jax.device_count() * batch_num
 maximum_resolution_area = [512**2]  # [576**2, 704**2, 832**2, 960**2, 1088**2]
@@ -48,7 +48,7 @@ shuffle_tags = False
 
 # batch generator (dataloader)
 worker_count = 5
-image_folder = f"/home/user/data_dump/laion"
+image_folder = f"/home/user/main_storage/laion"
 image_name_col = "file"
 orig_width_height = ["WIDTH", "HEIGHT"]
 width_height = ["new_image_width", "new_image_height"]
@@ -59,7 +59,7 @@ token_concatenate_count = 1
 token_length = 512  # 75 * token_concatenate_count + 2
 debug = True
 base_model_name = "sd1.5-t5-e"
-model_dir = f"/home/user/data_dump/{base_model_name}{epoch}"  # continue from last model
+model_dir = f"/home/user/main_storage/{base_model_name}{epoch}"  # continue from last model
 
 # ===============[pandas batching & bucketing]=============== #
 # ensure image exist
